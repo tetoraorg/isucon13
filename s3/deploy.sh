@@ -35,6 +35,7 @@ sudo cp -f $BASE_DIR/etc/nginx/sites-enabled/isupipe.conf /etc/nginx/sites-enabl
 
 sudo cp -f $BASE_DIR/etc/mysql/mysql.conf.d/mysqld.cnf /etc/mysql/mysql.conf.d/mysqld.cnf
 sudo cp -f $BASE_DIR/etc/sysctl.conf /etc/sysctl.conf
+sudo cp -f $BASE_DIR/etc/dnsdist/dnsdist.conf /etc/dnsdist/dnsdist.conf
 sudo sysctl -p
 
 
@@ -60,6 +61,7 @@ sudo rm -rf /var/log/nginx/access.log \
 sudo systemctl restart mysql
 sudo systemctl restart nginx
 sudo systemctl restart $SERVICE
+sudo systecmtl restart dnsdist
 
 # Slow Query Log
 sudo mysql -uisucon -pisucon -e 'SET GLOBAL long_query_time = 0; SET GLOBAL slow_query_log = ON; SET GLOBAL slow_query_log_file = "/var/log/mysql/mysql-slow.log";'
