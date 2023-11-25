@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/goccy/go-json"
+	"github.com/motoki317/sc"
 	"github.com/samber/lo"
 
 	"github.com/jmoiron/sqlx"
@@ -143,13 +144,19 @@ func getNgwords(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
-	var ngWords []*NGWord
-	if err := tx.SelectContext(ctx, &ngWords, "SELECT * FROM ng_words WHERE user_id = ? AND livestream_id = ? ORDER BY created_at DESC", userID, livestreamID); err != nil {
+	ngwordsAllUser, err := ngwordCache.Get(ctx, livestreamID)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return c.JSON(http.StatusOK, []*NGWord{})
 		} else {
 			return echo.NewHTTPError(http.StatusInternalServerError, "failed to get NG words: "+err.Error())
 		}
+	}
+	ngWords := lo.Filter(ngwordsAllUser, func(ngword *NGWord, _ int) bool {
+		return ngword.UserID == userID
+	})
+	if len(ngWords) == 0 {
+		return c.JSON(http.StatusOK, []*NGWord{})
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -198,10 +205,18 @@ func postLivecommentHandler(c echo.Context) error {
 	}
 
 	// スパム判定
-	var ngwords []*NGWord
-	if err := tx.SelectContext(ctx, &ngwords, "SELECT id, user_id, livestream_id, word FROM ng_words WHERE user_id = ? AND livestream_id = ?", livestreamModel.UserID, livestreamModel.ID); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get NG words: "+err.Error())
+	ngwords := []*NGWord{}
+	ngwordsAllUser, err := ngwordCache.Get(ctx, livestreamID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			ngwords = []*NGWord{}
+		} else {
+			return echo.NewHTTPError(http.StatusInternalServerError, "failed to get NG words: "+err.Error())
+		}
 	}
+	ngwords = lo.Filter(ngwordsAllUser, func(ngword *NGWord, _ int) bool {
+		return ngword.UserID == livestreamModel.UserID
+	})
 
 	var hitSpam int
 	for _, ngword := range ngwords {
@@ -328,6 +343,14 @@ func reportLivecommentHandler(c echo.Context) error {
 	return c.JSON(http.StatusCreated, report)
 }
 
+var ngwordCache = sc.NewMust(func(ctx context.Context, livestreamID int) ([]*NGWord, error) {
+	var ngwords []*NGWord
+	if err := dbConn.SelectContext(ctx, &ngwords, "SELECT * FROM ng_words WHERE livestream_id = ? ORDER BY created_at DESC", livestreamID); err != nil {
+		return nil, err
+	}
+	return ngwords, nil
+}, 1*time.Minute, 2*time.Minute)
+
 // NGワードを登録
 func moderateHandler(c echo.Context) error {
 	ctx := c.Request().Context()
@@ -367,12 +390,13 @@ func moderateHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "A streamer can't moderate livestreams that other streamers own")
 	}
 
-	rs, err := tx.NamedExecContext(ctx, "INSERT INTO ng_words(user_id, livestream_id, word, created_at) VALUES (:user_id, :livestream_id, :word, :created_at)", &NGWord{
+	newNGWord := &NGWord{
 		UserID:       int64(userID),
 		LivestreamID: int64(livestreamID),
 		Word:         req.NGWord,
 		CreatedAt:    time.Now().Unix(),
-	})
+	}
+	rs, err := tx.NamedExecContext(ctx, "INSERT INTO ng_words(user_id, livestream_id, word, created_at) VALUES (:user_id, :livestream_id, :word, :created_at)", newNGWord)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to insert new NG word: "+err.Error())
 	}
@@ -382,10 +406,11 @@ func moderateHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get last inserted NG word id: "+err.Error())
 	}
 
-	var ngwords []*NGWord
-	if err := tx.SelectContext(ctx, &ngwords, "SELECT * FROM ng_words WHERE livestream_id = ?", livestreamID); err != nil {
+	ngwords, err := ngwordCache.Get(ctx, livestreamID)
+	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get NG words: "+err.Error())
 	}
+	ngwords = append(ngwords, newNGWord)
 
 	// ライブコメント一覧取得
 	var livecomments []*LivecommentModel
@@ -411,6 +436,8 @@ func moderateHandler(c echo.Context) error {
 	if err := tx.Commit(); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to commit: "+err.Error())
 	}
+
+	ngwordCache.Forget(livestreamID)
 
 	return c.JSON(http.StatusCreated, map[string]interface{}{
 		"word_id": wordID,
