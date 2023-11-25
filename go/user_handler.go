@@ -495,10 +495,11 @@ func fillUserResponses(ctx context.Context, tx *sqlx.Tx, userModels []UserModel)
 var iconHashCache = sc.NewMust(func(ctx context.Context, userID int64) (string, error) {
 	var iconHash string
 	if err := dbConn.GetContext(ctx, &iconHash, "SELECT icon_hash FROM icons WHERE user_id = ?", userID); err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			return "", err
-		}
-		iconHash = fallbackIconHash
+		// if !errors.Is(err, sql.ErrNoRows) {
+		// 	return "", err
+		// }
+		// iconHash = fallbackIconHash
+		return "", err
 	}
 	return iconHash, nil
 }, 1*time.Minute, 2*time.Minute)
@@ -512,8 +513,7 @@ func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (Us
 	var iconHash string
 	iconHash, err = iconHashCache.Get(ctx, userModel.ID)
 	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			return User{}, err
+		return User{}, err
 		}
 		iconHash = fallbackIconHash
 	}
