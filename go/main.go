@@ -20,6 +20,8 @@ import (
 	"github.com/gorilla/sessions"
 	"github.com/labstack/echo-contrib/session"
 	echolog "github.com/labstack/gommon/log"
+
+	"github.com/kaz/pprotein/integration/echov4"
 )
 
 const (
@@ -112,6 +114,13 @@ func initializeHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to initialize: "+err.Error())
 	}
 
+	// TODO: remove later
+	go func() {
+		if _, err := http.Get("https://ras-pprotein.trap.show/api/group/collect"); err != nil {
+			c.Logger().Errorf("failed to communicate with pprotein: %v", err)
+		}
+	}()
+
 	c.Request().Header.Add("Content-Type", "application/json;charset=utf-8")
 	return c.JSON(http.StatusOK, InitializeResponse{
 		Language: "golang",
@@ -199,6 +208,9 @@ func main() {
 		os.Exit(1)
 	}
 	powerDNSSubdomainAddress = subdomainAddr
+
+	// TODO: remove later
+	echov4.EnableDebugHandler(e)
 
 	// HTTPサーバ起動
 	listenAddr := net.JoinHostPort("", strconv.Itoa(listenPort))

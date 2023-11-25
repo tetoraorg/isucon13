@@ -1,0 +1,27 @@
+matching_groups:
+    - ^/api/initilize$
+    - ^/api/tag$
+    - ^/api/user/[^\/]+/theme$
+    - ^/api/livestream/reservation$
+    - ^/api/livestream/search$
+    - ^/api/livestream$
+    - ^/api/user/[^\/]+/livestream$
+    - ^/api/livestream/[^\/]+$
+    - ^/api/livestream/[^\/]+/livecomment$
+    - ^/api/livestream/[^\/]+/livecomment/[^\/]+/report$
+    - ^/api/livestream/[^\/]+/reaction$
+    - ^/api/livestream/[^\/]+/report$
+    - ^/api/livestream/[^\/]+/ngwords$
+    - ^/api/livestream/[^\/]+/moderate$
+    - ^/api/livestream/[^\/]+/enter$
+    - ^/api/livestream/[^\/]+/exit$
+    - ^/api/register$
+    - ^/api/login$
+    - ^/api/user/me$
+    - ^/api/user/[^\/]+$
+    - ^/api/user/[^\/]+/statistics$
+    - ^/api/user/[^\/]+/icon$
+    - ^/api/icon$
+    - ^/api/livestream/[^\/]+/statistics$
+    - ^/api/payment$
+
