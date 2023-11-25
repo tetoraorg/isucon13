@@ -2,12 +2,10 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"strconv"
 	"time"
 
@@ -486,7 +484,7 @@ type UserThemeIconsModel struct {
 	DisplayName    string  `db:"display_name"`
 	Description    string  `db:"description"`
 	HashedPassword string  `db:"password"`
-	Image          *[]byte `db:"image"`
+	IconHash       *string `db:"icon_hash"`
 	DarkMode       *bool   `db:"dark_mode"`
 	ThemeID        *int64  `db:"theme_id"`
 }
@@ -500,7 +498,7 @@ func fillLiveStreamResponses(ctx context.Context, tx *sqlx.Tx, livestreamModels 
 		livestreamIDs[i] = livestreamModels[i].ID
 	}
 	joinedQuery := `
-		SELECT livestreams.id AS livestream_id, users.*, themes.dark_mode as dark_mode, themes.id as theme_id, icons.image as image
+		SELECT livestreams.id AS livestream_id, users.*, themes.dark_mode as dark_mode, themes.id as theme_id, icons.icon_hash as icon_hash
 		FROM livestreams
 		INNER JOIN users ON livestreams.user_id = users.id
 		INNER JOIN themes ON users.id = themes.user_id
@@ -584,17 +582,16 @@ func convertUserThemeIconsModelToUser(userThemeIconsModel UserThemeIconsModel) U
 		panic("theme_id or dark_mode is nil")
 	}
 
-	var image []byte
-	var err error
-	if userThemeIconsModel.Image != nil {
-		image = *userThemeIconsModel.Image
+	var iconHash string
+	if userThemeIconsModel.IconHash != nil {
+		iconHash = *userThemeIconsModel.IconHash
 	} else {
-		image, err = os.ReadFile(fallbackImage)
-		if err != nil {
-			panic(err)
+		if fallbackIconHash != "" {
+			iconHash = fallbackIconHash
+		} else {
+			panic("icon_hash is nil")
 		}
 	}
-	iconHash := sha256.Sum256(image)
 
 	return User{
 		ID:          userThemeIconsModel.UserID,
@@ -605,7 +602,7 @@ func convertUserThemeIconsModelToUser(userThemeIconsModel UserThemeIconsModel) U
 			ID:       *userThemeIconsModel.ThemeID,
 			DarkMode: *userThemeIconsModel.DarkMode,
 		},
-		IconHash: fmt.Sprintf("%x", iconHash),
+		IconHash: iconHash,
 	}
 }
 
