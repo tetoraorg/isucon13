@@ -235,15 +235,13 @@ func getLivestreamStatisticsHandler(c echo.Context) error {
 	// ランク算出
 	var ranking LivestreamRanking
 	if err := tx.SelectContext(ctx, &ranking,
-		"SELECT r.livestream_id AS livestream_id, COUNT(r.id) + IFNULL(SUM(lc.tip), 0) AS score FROM reactions r INNER JOIN livecomments lc ON r.livestream_id = lc.livestream_id GROUP BY r.livestream_id ",
+		"SELECT r.livestream_id AS livestream_id, COUNT(r.id) + IFNULL(SUM(lc.tip), 0) AS score FROM reactions r INNER JOIN livecomments lc ON r.livestream_id = lc.livestream_id GROUP BY r.livestream_id ORDER BY score DESC",
 	); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get ranking: "+err.Error())
 	}
-	sort.Sort(ranking)
 
 	var rank int64 = 1
-	for i := len(ranking) - 1; i >= 0; i-- {
-		entry := ranking[i]
+	for _, entry := range ranking {
 		if entry.LivestreamID == livestreamID {
 			break
 		}
