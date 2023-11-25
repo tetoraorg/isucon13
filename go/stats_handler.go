@@ -20,7 +20,7 @@ type LivestreamStatistics struct {
 
 type LivestreamRankingEntry struct {
 	LivestreamID int64 `db:"livestream_id"`
-	Score        int64 `db:"score"`
+	Score        int64 `db:"-"`
 }
 type LivestreamRanking []LivestreamRankingEntry
 
