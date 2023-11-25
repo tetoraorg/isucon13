@@ -602,7 +602,7 @@ func convertUserThemeIconsModelToUser(userThemeIconsModel UserThemeIconsModel) U
 			ID:       *userThemeIconsModel.ThemeID,
 			DarkMode: *userThemeIconsModel.DarkMode,
 		},
-		IconHash: fmt.Sprintf("%x", iconHash),
+		IconHash: iconHash,
 	}
 }
 
