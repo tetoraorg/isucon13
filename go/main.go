@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"sync"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
@@ -118,9 +119,46 @@ func connectDB(logger echo.Logger) (*sqlx.DB, error) {
 }
 
 func initializeHandler(c echo.Context) error {
-	if out, err := exec.Command("../sql/init.sh").CombinedOutput(); err != nil {
-		c.Logger().Warnf("init.sh failed with err=%s", string(out))
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to initialize: "+err.Error())
+	const (
+		addrEnvKey = "ISUCON13_MYSQL_DIALCONFIG_ADDRESS"
+	)
+	addr, ok := os.LookupEnv(addrEnvKey)
+
+	if !ok {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to initialize: No database address")
+	}
+
+	dbHosts := []string{
+		addr,
+	}
+
+	wg := &sync.WaitGroup{}
+	errCh := make(chan error, len(dbHosts))
+
+	defer close(errCh)
+
+	for _, host := range dbHosts {
+		wg.Add(1)
+		go func(host string) {
+			defer wg.Done()
+			res, err := http.Post(fmt.Sprintf("http://%s:8080/api/initialize/onedb", host), "application/json", nil)
+			if err != nil {
+				c.Logger().Errorf("failed to initialize: %v", err)
+				errCh <- err
+				return
+			}
+
+			if res.StatusCode != http.StatusOK {
+				c.Logger().Errorf("failed to initialize: %v", res.Status)
+				errCh <- fmt.Errorf("failed to initialize: %v", res.Status)
+				return
+			}
+		}(host)
+	}
+	wg.Wait()
+
+	if len(errCh) > 0 {
+		return echo.NewHTTPError(http.StatusInternalServerError, <-errCh)
 	}
 
 	// TODO: remove later
@@ -129,6 +167,18 @@ func initializeHandler(c echo.Context) error {
 			c.Logger().Errorf("failed to communicate with pprotein: %v", err)
 		}
 	}()
+
+	c.Request().Header.Add("Content-Type", "application/json;charset=utf-8")
+	return c.JSON(http.StatusOK, InitializeResponse{
+		Language: "golang",
+	})
+}
+
+func initializeOneHandler(c echo.Context) error {
+	if out, err := exec.Command("../sql/init.sh").CombinedOutput(); err != nil {
+		c.Logger().Warnf("init.sh failed with err=%s", string(out))
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to initialize: "+err.Error())
+	}
 
 	c.Request().Header.Add("Content-Type", "application/json;charset=utf-8")
 	return c.JSON(http.StatusOK, InitializeResponse{
@@ -148,6 +198,7 @@ func main() {
 
 	// 初期化
 	e.POST("/api/initialize", initializeHandler)
+	e.POST("/api/initialize/onedb", initializeOneHandler)
 
 	// top
 	e.GET("/api/tag", getTagHandler)
