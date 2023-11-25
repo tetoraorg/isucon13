@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/goccy/go-json"
+	"github.com/motoki317/sc"
 	"github.com/samber/lo"
 
 	"github.com/jmoiron/sqlx"
@@ -328,6 +329,14 @@ func reportLivecommentHandler(c echo.Context) error {
 	return c.JSON(http.StatusCreated, report)
 }
 
+var ngwordCache = sc.NewMust(func(ctx context.Context, livestreamID int) ([]*NGWord, error) {
+	var ngwords []*NGWord
+	if err := dbConn.SelectContext(ctx, &ngwords, "SELECT * FROM ng_words WHERE livestream_id = ?", livestreamID); err != nil {
+		return nil, err
+	}
+	return ngwords, nil
+}, 1*time.Minute, 2*time.Minute)
+
 // NGワードを登録
 func moderateHandler(c echo.Context) error {
 	ctx := c.Request().Context()
@@ -376,14 +385,15 @@ func moderateHandler(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to insert new NG word: "+err.Error())
 	}
+	ngwordCache.Forget(livestreamID)
 
 	wordID, err := rs.LastInsertId()
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get last inserted NG word id: "+err.Error())
 	}
 
-	var ngwords []*NGWord
-	if err := tx.SelectContext(ctx, &ngwords, "SELECT * FROM ng_words WHERE livestream_id = ?", livestreamID); err != nil {
+	ngwords, err := ngwordCache.Get(ctx, livestreamID)
+	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get NG words: "+err.Error())
 	}
 
