@@ -107,11 +107,16 @@ func getIconHandler(c echo.Context) error {
 
 	// icon_hashを利用し変更されてなかったら304を返す
 	if iconHash := c.Request().Header.Get("If-None-Match"); iconHash != "" {
-		if err := tx.GetContext(ctx, &user, "SELECT * FROM icons WHERE user_id = ? AND icon_hash = ?", username, iconHash); err != nil {
+		var count int
+		if err := tx.GetContext(ctx, &count, "SELECT COUNT(*) FROM icons WHERE user_id = ? AND icon_hash = ?", username, iconHash); err != nil {
 			// なければskip
 			if !errors.Is(err, sql.ErrNoRows) {
 				return echo.NewHTTPError(http.StatusInternalServerError, "failed to get user: "+err.Error())
 			}
+		}
+
+		if count > 0 {
+			return c.NoContent(http.StatusNotModified)
 		}
 	}
 
