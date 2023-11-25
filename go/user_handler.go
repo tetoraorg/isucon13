@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/goccy/go-json"
+	"github.com/samber/lo"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/sessions"
@@ -414,6 +415,70 @@ func verifyUserSession(c echo.Context) error {
 	}
 
 	return nil
+}
+
+func fillUserResponses(ctx context.Context, tx *sqlx.Tx, userModels []UserModel) ([]User, error) {
+	userIDs := lo.Map(userModels, func(userModel UserModel, _ int) interface{} {
+		return userModel.ID
+	})
+
+	query, params, err := sqlx.In("SELECT * FROM themes WHERE user_id IN (?)", userIDs)
+	if err != nil {
+		return nil, err
+	}
+	themeModels := []ThemeModel{}
+	if err := tx.SelectContext(ctx, &themeModels, query, params...); err != nil {
+		return nil, err
+	}
+	themeMap := lo.SliceToMap(themeModels, func(themeModel ThemeModel) (int64, ThemeModel) {
+		return themeModel.UserID, themeModel
+	})
+
+	type IconModel struct {
+		UserID int64  `db:"user_id"`
+		Image  []byte `db:"image"`
+	}
+
+	query, params, err = sqlx.In("SELECT user_id, image FROM icons WHERE user_id IN (?)", userIDs)
+	if err != nil {
+		return nil, err
+	}
+	iconModels := []IconModel{}
+	if err := tx.SelectContext(ctx, &iconModels, query, params...); err != nil {
+		return nil, err
+	}
+	iconMap := lo.SliceToMap(iconModels, func(iconModel IconModel) (int64, IconModel) {
+		return iconModel.UserID, iconModel
+	})
+
+	users := make([]User, len(userModels))
+	for i, userModel := range userModels {
+		themeModel, ok := themeMap[userModel.ID]
+		if !ok {
+			return nil, fmt.Errorf("theme not found for user_id=%d", userModel.ID)
+		}
+
+		iconModel, ok := iconMap[userModel.ID]
+		if !ok {
+			return nil, fmt.Errorf("icon not found for user_id=%d", userModel.ID)
+		}
+
+		iconHash := sha256.Sum256(iconModel.Image)
+
+		users[i] = User{
+			ID:          userModel.ID,
+			Name:        userModel.Name,
+			DisplayName: userModel.DisplayName,
+			Description: userModel.Description,
+			Theme: Theme{
+				ID:       themeModel.ID,
+				DarkMode: themeModel.DarkMode,
+			},
+			IconHash: fmt.Sprintf("%x", iconHash),
+		}
+	}
+
+	return users, nil
 }
 
 func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (User, error) {

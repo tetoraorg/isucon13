@@ -431,7 +431,11 @@ func fillLivecommentReportResponses(ctx context.Context, tx *sqlx.Tx, liveCommen
 	if err := tx.SelectContext(ctx, &commentOwnerModels, query, params...); err != nil {
 		return nil, err
 	}
-	commentOwnerModelsMap := lo.SliceToMap(commentOwnerModels, func(co UserModel) (int64, UserModel) {
+	commentOwners, err := fillUserResponses(ctx, tx, commentOwnerModels)
+	if err != nil {
+		return nil, err
+	}
+	commentOwnersMap := lo.SliceToMap(commentOwners, func(co User) (int64, User) {
 		return co.ID, co
 	})
 
@@ -455,13 +459,8 @@ func fillLivecommentReportResponses(ctx context.Context, tx *sqlx.Tx, liveCommen
 	})
 
 	livecomments := lo.Map(liveCommentModels, func(lc LivecommentModel, i int) Livecomment {
-		commentOwnerModel, ok := commentOwnerModelsMap[lc.UserID]
+		commentOwner, ok := commentOwnersMap[lc.UserID]
 		if !ok {
-			return Livecomment{}
-		}
-		// TODO: fillUserResponsesを実装する
-		commentOwner, err := fillUserResponse(ctx, tx, commentOwnerModel)
-		if err != nil {
 			return Livecomment{}
 		}
 		livestream, ok := livestreamsMap[lc.LivestreamID]
