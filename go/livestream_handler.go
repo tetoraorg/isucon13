@@ -485,8 +485,8 @@ type UserThemeIconsModel struct {
 	Description    string  `db:"description"`
 	HashedPassword string  `db:"password"`
 	Image          *[]byte `db:"image"`
-	DarkMode       bool    `db:"dark_mode"`
-	ThemeID        int64   `db:"theme_id"`
+	DarkMode       *bool   `db:"dark_mode"`
+	ThemeID        *int64  `db:"theme_id"`
 }
 
 func fillLiveStreamResponses(ctx context.Context, tx *sqlx.Tx, livestreamModels []*LivestreamModel) ([]Livestream, error) {
@@ -497,7 +497,7 @@ func fillLiveStreamResponses(ctx context.Context, tx *sqlx.Tx, livestreamModels 
 	for i := range livestreamModels {
 		userIds[i] = livestreamModels[i].UserID
 	}
-	joinedQuery := `SELECT users.*, themes.dark_mode as dark_mode, themes.id as theme_id, icons.image as image FROM users INNER JOIN themes ON users.id = themes.user_id ` +
+	joinedQuery := `SELECT users.*, themes.dark_mode as dark_mode, themes.id as theme_id, icons.image as image FROM users LEFT JOIN themes ON users.id = themes.user_id ` +
 		`LEFT JOIN icons ON users.id = icons.user_id WHERE users.id IN (?)`
 	query, params, err := sqlx.In(joinedQuery, userIds)
 	if err != nil {
