@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/goccy/go-json"
+	"github.com/motoki317/sc"
 	"github.com/samber/lo"
 
 	"github.com/google/uuid"
@@ -108,15 +109,12 @@ func getIconHandler(c echo.Context) error {
 
 	// icon_hashを利用し変更されてなかったら304を返す
 	if iconHash := c.Request().Header.Get("If-None-Match"); iconHash != "" {
-		var count int
-		if err := tx.GetContext(ctx, &count, "SELECT COUNT(*) FROM icons WHERE user_id = ? AND icon_hash = ?", user.ID, strings.Trim(iconHash, "\"")); err != nil {
-			// なければskip
-			if !errors.Is(err, sql.ErrNoRows) {
-				return echo.NewHTTPError(http.StatusInternalServerError, "failed to get user: "+err.Error())
-			}
+		iconHashDB, err := iconHashCache.Get(ctx, user.ID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return echo.NewHTTPError(http.StatusInternalServerError, "failed to get icon hash: "+err.Error())
 		}
 
-		if count > 0 {
+		if iconHashDB == strings.Trim(iconHash, "\"") {
 			return c.NoContent(http.StatusNotModified)
 		}
 	}
@@ -171,6 +169,8 @@ func postIconHandler(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get last inserted icon id: "+err.Error())
 	}
+
+	iconHashCache.Forget(userID)
 
 	if err := tx.Commit(); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to commit: "+err.Error())
@@ -482,6 +482,17 @@ func fillUserResponses(ctx context.Context, tx *sqlx.Tx, userModels []UserModel)
 	return users, nil
 }
 
+var iconHashCache = sc.NewMust(func(ctx context.Context, userID int64) (string, error) {
+	var iconHash string
+	if err := dbConn.GetContext(ctx, &iconHash, "SELECT icon_hash FROM icons WHERE user_id = ?", userID); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return "", err
+		}
+		iconHash = fallbackIconHash
+	}
+	return iconHash, nil
+}, 1*time.Minute, 2*time.Minute)
+
 func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (User, error) {
 	themeModel, err := themeCache.Get(ctx, userModel.ID)
 	if err != nil {
@@ -489,7 +500,8 @@ func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (Us
 	}
 
 	var iconHash string
-	if err := tx.GetContext(ctx, &iconHash, "SELECT icon_hash FROM icons WHERE user_id = ?", userModel.ID); err != nil {
+	iconHash, err = iconHashCache.Get(ctx, userModel.ID)
+	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			return User{}, err
 		}
