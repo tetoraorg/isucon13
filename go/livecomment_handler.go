@@ -345,7 +345,7 @@ func reportLivecommentHandler(c echo.Context) error {
 
 var ngwordCache = sc.NewMust(func(ctx context.Context, livestreamID int) ([]*NGWord, error) {
 	var ngwords []*NGWord
-	if err := dbConn.SelectContext(ctx, &ngwords, "SELECT * FROM ng_words WHERE livestream_id = ?", livestreamID); err != nil {
+	if err := dbConn.SelectContext(ctx, &ngwords, "SELECT * FROM ng_words WHERE livestream_id = ? ORDER BY created_at DESC", livestreamID); err != nil {
 		return nil, err
 	}
 	return ngwords, nil
@@ -390,16 +390,16 @@ func moderateHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "A streamer can't moderate livestreams that other streamers own")
 	}
 
-	rs, err := tx.NamedExecContext(ctx, "INSERT INTO ng_words(user_id, livestream_id, word, created_at) VALUES (:user_id, :livestream_id, :word, :created_at)", &NGWord{
+	newNGWord := &NGWord{
 		UserID:       int64(userID),
 		LivestreamID: int64(livestreamID),
 		Word:         req.NGWord,
 		CreatedAt:    time.Now().Unix(),
-	})
+	}
+	rs, err := tx.NamedExecContext(ctx, "INSERT INTO ng_words(user_id, livestream_id, word, created_at) VALUES (:user_id, :livestream_id, :word, :created_at)", newNGWord)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to insert new NG word: "+err.Error())
 	}
-	ngwordCache.Forget(livestreamID)
 
 	wordID, err := rs.LastInsertId()
 	if err != nil {
@@ -410,6 +410,7 @@ func moderateHandler(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get NG words: "+err.Error())
 	}
+	ngwords = append(ngwords, newNGWord)
 
 	// ライブコメント一覧取得
 	var livecomments []*LivecommentModel
@@ -435,6 +436,8 @@ func moderateHandler(c echo.Context) error {
 	if err := tx.Commit(); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to commit: "+err.Error())
 	}
+
+	ngwordCache.Forget(livestreamID)
 
 	return c.JSON(http.StatusCreated, map[string]interface{}{
 		"word_id": wordID,
