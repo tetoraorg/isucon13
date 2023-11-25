@@ -6,13 +6,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"time"
 
 	"github.com/goccy/go-json"
+	"github.com/samber/lo"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo-contrib/session"
@@ -480,7 +480,8 @@ func getLivecommentReportsHandler(c echo.Context) error {
 }
 
 type UserThemeIconsModel struct {
-	ID             int64   `db:"id"`
+	LivestreamID   int64   `db:"livestream_id"`
+	UserID         int64   `db:"id"` // AS したくなくてidにしてる
 	Name           string  `db:"name"`
 	DisplayName    string  `db:"display_name"`
 	Description    string  `db:"description"`
@@ -499,7 +500,7 @@ func fillLiveStreamResponses(ctx context.Context, tx *sqlx.Tx, livestreamModels 
 		livestreamIDs[i] = livestreamModels[i].ID
 	}
 	joinedQuery := `
-		SELECT users.*, themes.dark_mode as dark_mode, themes.id as theme_id, icons.image as image
+		SELECT livestreams.id AS livestream_id, users.*, themes.dark_mode as dark_mode, themes.id as theme_id, icons.image as image
 		FROM livestreams
 		INNER JOIN users ON livestreams.user_id = users.id
 		INNER JOIN themes ON users.id = themes.user_id
@@ -515,16 +516,22 @@ func fillLiveStreamResponses(ctx context.Context, tx *sqlx.Tx, livestreamModels 
 		return nil, err
 	}
 
-	log.Println("length of ownerModels: ", len(ownerModels))
-	log.Println("length of livestreamModels: ", len(livestreamModels))
+	ownerModelsMap := lo.SliceToMap(ownerModels, func(m *UserThemeIconsModel) (int64, *UserThemeIconsModel) {
+		return m.LivestreamID, m
+	})
 
 	// tagsを全部取得
-	for i := range livestreamModels {
-		tags, err := getTagsTmpResponses(ctx, tx, *livestreamModels[i])
+	for i, ls := range livestreamModels {
+		tags, err := getTagsTmpResponses(ctx, tx, *ls)
 		if err != nil {
 			return nil, err
 		}
-		owner := convertUserThemeIconsModelToUser(*ownerModels[i])
+		ownerModel, ok := ownerModelsMap[ls.ID]
+		if !ok {
+			return nil, fmt.Errorf("owner model not found: livestream_id = %d", ls.ID)
+		}
+
+		owner := convertUserThemeIconsModelToUser(*ownerModel)
 
 		livestream := Livestream{
 			ID:           livestreamModels[i].ID,
@@ -584,7 +591,7 @@ func convertUserThemeIconsModelToUser(userThemeIconsModel UserThemeIconsModel) U
 	iconHash := sha256.Sum256(image)
 
 	return User{
-		ID:          userThemeIconsModel.ID,
+		ID:          userThemeIconsModel.UserID,
 		Name:        userThemeIconsModel.Name,
 		DisplayName: userThemeIconsModel.DisplayName,
 		Description: userThemeIconsModel.Description,
