@@ -64,8 +64,8 @@ sudo rm -rf /var/log/nginx/access.log \
 sudo systemctl restart mysql
 sudo systemctl restart nginx
 sudo systemctl restart $SERVICE
-sudo systemctl restart dnsdist
 sudo systemctl restart pdns
+sudo systemctl restart dnsdist
 
 # Slow Query Log
 sudo mysql -uisucon -pisucon -e 'SET GLOBAL long_query_time = 0; SET GLOBAL slow_query_log = ON; SET GLOBAL slow_query_log_file = "/var/log/mysql/mysql-slow.log";'
