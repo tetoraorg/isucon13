@@ -520,15 +520,21 @@ func fillLiveStreamResponses(ctx context.Context, tx *sqlx.Tx, livestreamModels 
 		return m.LivestreamID, m
 	})
 
-	// tagsを全部取得
+	// tagsMapを全部取得
+	tagsMap, err := getTagsResponsesIn(ctx, tx, livestreamIDs)
+	if err != nil {
+		return nil, err
+	}
+
 	for i, ls := range livestreamModels {
-		tags, err := getTagsTmpResponses(ctx, tx, *ls)
-		if err != nil {
-			return nil, err
-		}
 		ownerModel, ok := ownerModelsMap[ls.ID]
 		if !ok {
 			return nil, fmt.Errorf("owner model not found: livestream_id = %d", ls.ID)
+		}
+
+		tags, ok := tagsMap[ls.ID]
+		if !ok {
+			return nil, fmt.Errorf("tags not found: livestream_id = %d", ls.ID)
 		}
 
 		owner := convertUserThemeIconsModelToUser(*ownerModel)
@@ -550,14 +556,26 @@ func fillLiveStreamResponses(ctx context.Context, tx *sqlx.Tx, livestreamModels 
 	return livestreams, nil
 }
 
-// TODO: N^2+1なのであとで修正する
-func getTagsTmpResponses(ctx context.Context, tx *sqlx.Tx, livestreamModel LivestreamModel) ([]Tag, error) {
-	var tags []Tag
-	if err := tx.SelectContext(ctx, &tags, "SELECT * FROM tags t INNER JOIN livestream_tags lt ON tags.id = lt.tag_id WHERE lt.livestream_id = ?", livestreamModel.ID); err != nil {
+func getTagsResponsesIn(ctx context.Context, tx *sqlx.Tx, livestreamModelIDs []int64) (map[int64][]Tag, error) {
+	query, params, err := sqlx.In("SELECT * FROM tags t INNER JOIN livestream_tags lt ON tags.id = lt.tag_id WHERE lt.livestream_id = ?", livestreamModelIDs)
+	if err != nil {
 		return nil, err
 	}
 
-	return tags, nil
+	var tags []Tag
+	if err := tx.SelectContext(ctx, &tags, query, params...); err != nil {
+		return nil, err
+	}
+
+	tagsMap := make(map[int64][]Tag)
+	for _, tag := range tags {
+		if _, ok := tagsMap[tag.ID]; !ok {
+			tagsMap[tag.ID] = make([]Tag, 0)
+		}
+		tagsMap[tag.ID] = append(tagsMap[tag.ID], tag)
+	}
+
+	return tagsMap, nil
 }
 
 func convertUserThemeIconsModelToUser(userThemeIconsModel UserThemeIconsModel) User {
