@@ -557,6 +557,10 @@ func getTagsTmpResponses(ctx context.Context, tx *sqlx.Tx, livestreamModel Lives
 }
 
 func convertUserThemeIconsModelToUser(userThemeIconsModel UserThemeIconsModel) User {
+	if userThemeIconsModel.ThemeID == nil || userThemeIconsModel.DarkMode == nil {
+		panic("theme_id or dark_mode is nil")
+	}
+
 	var image []byte
 	var err error
 	if userThemeIconsModel.Image != nil {
@@ -575,8 +579,8 @@ func convertUserThemeIconsModelToUser(userThemeIconsModel UserThemeIconsModel) U
 		DisplayName: userThemeIconsModel.DisplayName,
 		Description: userThemeIconsModel.Description,
 		Theme: Theme{
-			ID:       userThemeIconsModel.ThemeID,
-			DarkMode: userThemeIconsModel.DarkMode,
+			ID:       *userThemeIconsModel.ThemeID,
+			DarkMode: *userThemeIconsModel.DarkMode,
 		},
 		IconHash: fmt.Sprintf("%x", iconHash),
 	}
