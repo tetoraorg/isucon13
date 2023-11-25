@@ -119,17 +119,15 @@ func connectDB(logger echo.Logger) (*sqlx.DB, error) {
 func initializeHandler(c echo.Context) error {
 	const (
 		addrEnvKey = "ISUCON13_MYSQL_DIALCONFIG_ADDRESS"
-		portEnvKey = "ISUCON13_MYSQL_DIALCONFIG_PORT"
 	)
 	addr, ok := os.LookupEnv(addrEnvKey)
-	port, ok2 := os.LookupEnv(portEnvKey)
 
-	if !ok || !ok2 {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to initialize: No database address or port")
+	if !ok {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to initialize: No database address")
 	}
 
 	dbHosts := []string{
-		net.JoinHostPort(addr, port),
+		addr,
 	}
 
 	wg := &sync.WaitGroup{}
