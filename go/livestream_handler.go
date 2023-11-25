@@ -520,15 +520,22 @@ func fillLiveStreamResponses(ctx context.Context, tx *sqlx.Tx, livestreamModels 
 		return m.LivestreamID, m
 	})
 
-	// tagsを全部取得
+	// tagsMapを全部取得
+	tagsMap, err := getTagsResponsesIn(ctx, tx, livestreamIDs)
+	if err != nil {
+		return nil, err
+	}
+
 	for i, ls := range livestreamModels {
-		tags, err := getTagsTmpResponses(ctx, tx, *ls)
-		if err != nil {
-			return nil, err
-		}
 		ownerModel, ok := ownerModelsMap[ls.ID]
 		if !ok {
 			return nil, fmt.Errorf("owner model not found: livestream_id = %d", ls.ID)
+		}
+
+		var tags []Tag
+		tags = tagsMap[ls.ID]
+		if tags == nil {
+			tags = make([]Tag, 0)
 		}
 
 		owner := convertUserThemeIconsModelToUser(*ownerModel)
@@ -550,27 +557,26 @@ func fillLiveStreamResponses(ctx context.Context, tx *sqlx.Tx, livestreamModels 
 	return livestreams, nil
 }
 
-// TODO: N^2+1なのであとで修正する
-func getTagsTmpResponses(ctx context.Context, tx *sqlx.Tx, livestreamModel LivestreamModel) ([]Tag, error) {
-	var livestreamTagModels []*LivestreamTagModel
-	if err := tx.SelectContext(ctx, &livestreamTagModels, "SELECT * FROM livestream_tags WHERE livestream_id = ?", livestreamModel.ID); err != nil {
+func getTagsResponsesIn(ctx context.Context, tx *sqlx.Tx, livestreamModelIDs []int64) (map[int64][]Tag, error) {
+	query, params, err := sqlx.In("SELECT t.*, lt.livestream_id AS livestream_id FROM tags t INNER JOIN livestream_tags lt ON t.id = lt.tag_id WHERE lt.livestream_id IN (?)", livestreamModelIDs)
+	if err != nil {
 		return nil, err
 	}
 
-	tags := make([]Tag, len(livestreamTagModels))
-	for i := range livestreamTagModels {
-		tagModel := TagModel{}
-		if err := tx.GetContext(ctx, &tagModel, "SELECT * FROM tags WHERE id = ?", livestreamTagModels[i].TagID); err != nil {
-			return nil, err
-		}
-
-		tags[i] = Tag{
-			ID:   tagModel.ID,
-			Name: tagModel.Name,
-		}
+	var tags []Tag
+	if err := tx.SelectContext(ctx, &tags, query, params...); err != nil {
+		return nil, err
 	}
 
-	return tags, nil
+	tagsMap := make(map[int64][]Tag)
+	for _, tag := range tags {
+		if _, ok := tagsMap[tag.LivestreamID]; !ok {
+			tagsMap[tag.LivestreamID] = make([]Tag, 0)
+		}
+		tagsMap[tag.LivestreamID] = append(tagsMap[tag.LivestreamID], tag)
+	}
+
+	return tagsMap, nil
 }
 
 func convertUserThemeIconsModelToUser(userThemeIconsModel UserThemeIconsModel) User {
