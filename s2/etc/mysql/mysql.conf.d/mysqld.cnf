@@ -74,6 +74,21 @@ log_error = /var/log/mysql/error.log
 # server-id		= 1
 # log_bin			= /var/log/mysql/mysql-bin.log
 # binlog_expire_logs_seconds	= 2592000
-max_binlog_size   = 100M
+# max_binlog_size   = 100M
 # binlog_do_db		= include_database_name
 # binlog_ignore_db	= include_database_name
+
+disable-log-bin
+skip_name_resolve=1
+skip-innodb-doublewrite
+
+tmp_table_size = 64M
+max_heap_table_size = 64M
+
+innodb_buffer_pool_size = 3000MB
+innodb_buffer_pool_instances = 2 
+innodb_log_file_size = 750MB
+innodb_log_buffer_size = 20MB
+innodb_log_writer_threads = OFF
+innodb_flush_log_at_trx_commit = 0
+innodb_flush_log_at_timeout = 3
