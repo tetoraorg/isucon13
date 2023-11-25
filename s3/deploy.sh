@@ -64,7 +64,7 @@ sudo rm -rf /var/log/nginx/access.log \
 sudo systemctl restart mysql
 sudo systemctl restart nginx
 sudo systemctl restart $SERVICE
-sudo systecmtl restart dnsdist
+sudo systemctl restart dnsdist
 sudo systemctl restart pdns
 
 # Slow Query Log
