@@ -217,6 +217,7 @@ func main() {
 	powerDNSSubdomainAddress = subdomainAddr
 
 	// TODO: remove later
+	os.Setenv("PPROTEIN_GIT_REPOSITORY", "/home/isucon/webapp")
 	echov4.EnableDebugHandler(e)
 
 	// HTTPサーバ起動
