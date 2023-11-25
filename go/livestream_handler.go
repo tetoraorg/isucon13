@@ -494,13 +494,19 @@ func fillLiveStreamResponses(ctx context.Context, tx *sqlx.Tx, livestreamModels 
 	livestreams := make([]Livestream, len(livestreamModels))
 
 	// usersを全部取得
-	userIds := make([]int64, len(livestreamModels))
+	livestreamIDs := make([]int64, len(livestreamModels))
 	for i := range livestreamModels {
-		userIds[i] = livestreamModels[i].UserID
+		livestreamIDs[i] = livestreamModels[i].ID
 	}
-	joinedQuery := `SELECT users.*, themes.dark_mode as dark_mode, themes.id as theme_id, icons.image as image FROM users LEFT JOIN themes ON users.id = themes.user_id ` +
-		`LEFT JOIN icons ON users.id = icons.user_id WHERE users.id IN (?)`
-	query, params, err := sqlx.In(joinedQuery, userIds)
+	joinedQuery := `
+		SELECT users.*, themes.dark_mode as dark_mode, themes.id as theme_id, icons.image as image
+		FROM livestreams
+		INNER JOIN users ON livestreams.user_id = users.id
+		INNER JOIN themes ON users.id = themes.user_id
+		LEFT JOIN icons ON users.id = icons.user_id
+		WHERE livestreams.id IN (?)
+	`
+	query, params, err := sqlx.In(joinedQuery, livestreamIDs)
 	if err != nil {
 		return nil, err
 	}
