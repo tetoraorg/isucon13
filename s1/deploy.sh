@@ -37,6 +37,11 @@ sudo cp -f $BASE_DIR/etc/mysql/mysql.conf.d/mysqld.cnf /etc/mysql/mysql.conf.d/m
 sudo cp -f $BASE_DIR/etc/sysctl.conf /etc/sysctl.conf
 sudo sysctl -p
 
+sudo cp -f $BASE_DIR/etc/powerdns/pdns.conf /etc/powerdns/pdns.conf
+sudo cp -f $BASE_DIR/etc/powerdns/named.conf /etc/powerdns/named.conf
+sudo cp -f $BASE_DIR/etc/powerdns/pdns.d/gmysql-host.conf /etc/powerdns/pdns.d/gmysql-host.conf
+
+
 
 # Build
 # cd $GIT_REPO_DIR/go && go build -o $APP
@@ -60,6 +65,7 @@ sudo rm -rf /var/log/nginx/access.log \
 sudo systemctl restart mysql
 sudo systemctl restart nginx
 sudo systemctl restart $SERVICE
+sudo systemctl restart pdns
 
 # Slow Query Log
 sudo mysql -uisucon -pisucon -e 'SET GLOBAL long_query_time = 0; SET GLOBAL slow_query_log = ON; SET GLOBAL slow_query_log_file = "/var/log/mysql/mysql-slow.log";'
