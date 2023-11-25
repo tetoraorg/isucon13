@@ -35,6 +35,11 @@ var (
 	secret                   = []byte("isucon13_session_cookiestore_defaultsecret")
 )
 
+const (
+	MAX_OPEN_CONNS int = 256
+	MAX_IDLE_CONNS int = 256
+)
+
 func init() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 	if secretKey, ok := os.LookupEnv("ISUCON13_SESSION_SECRETKEY"); ok {
@@ -67,6 +72,7 @@ func connectDB(logger echo.Logger) (*sqlx.DB, error) {
 	conf.Passwd = "isucon"
 	conf.DBName = "isupipe"
 	conf.ParseTime = true
+	conf.InterpolateParams = true
 
 	if v, ok := os.LookupEnv(networkTypeEnvKey); ok {
 		conf.Net = v
@@ -99,7 +105,8 @@ func connectDB(logger echo.Logger) (*sqlx.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(10)
+	db.SetMaxOpenConns(MAX_OPEN_CONNS)
+	db.SetMaxIdleConns(MAX_IDLE_CONNS)
 
 	if err := db.Ping(); err != nil {
 		return nil, err
