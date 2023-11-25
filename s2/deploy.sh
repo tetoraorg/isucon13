@@ -62,4 +62,5 @@ sudo systemctl restart nginx
 sudo systemctl restart $SERVICE
 
 # Slow Query Log
-sudo mysql -uisucon -pisucon -e 'SET GLOBAL long_query_time = 0; SET GLOBAL slow_query_log = ON; SET GLOBAL slow_query_log_file = "/var/log/mysql/mysql-slow.log";'
+# sudo mysql -uisucon -pisucon -e 'SET GLOBAL long_query_time = 0; SET GLOBAL slow_query_log = ON; SET GLOBAL slow_query_log_file = "/var/log/mysql/mysql-slow.log";'
+sudo mysql -uisucon -pisucon -e 'SET GLOBAL slow_query_log = OFF; SET GLOBAL slow_query_log_file = "/var/log/mysql/mysql-slow.log";'
