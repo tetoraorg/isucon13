@@ -237,10 +237,10 @@ func getLivestreamStatisticsHandler(c echo.Context) error {
 		Count        int64 `db:"count"`
 		TotalTip     int64 `db:"total_tip"`
 	}
-	if err := tx.SelectContext(ctx, &scores, "SELECT livestream_id, COUNT(*) AS count FROM reactions GROUP BY livestream_id"); err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err := tx.SelectContext(ctx, &scores, "SELECT livestream_id, COUNT(*) AS COUNT FROM reactions GROUP BY livestream_id"); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to count reactions: "+err.Error())
 	}
-	if err := tx.SelectContext(ctx, &scores, "SELECT livestream_id, IFNULL(SUM(tip), 0) AS total_tip FROM livecomments GROUP BY livestream_id"); err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err := tx.SelectContext(ctx, &scores, "SELECT livestream_id, IFNULL(SUM(tip), 0) FROM livecomments GROUP BY livestream_id"); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to count tips: "+err.Error())
 	}
 
