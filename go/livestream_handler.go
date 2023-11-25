@@ -2,14 +2,17 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
 	"github.com/goccy/go-json"
+	"github.com/samber/lo"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo-contrib/session"
@@ -222,13 +225,9 @@ func searchLivestreamsHandler(c echo.Context) error {
 		}
 	}
 
-	livestreams := make([]Livestream, len(livestreamModels))
-	for i := range livestreamModels {
-		livestream, err := fillLivestreamResponse(ctx, tx, *livestreamModels[i])
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill livestream: "+err.Error())
-		}
-		livestreams[i] = livestream
+	livestreams, err := fillLiveStreamResponses(ctx, tx, livestreamModels)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill livestreams: "+err.Error())
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -259,13 +258,10 @@ func getMyLivestreamsHandler(c echo.Context) error {
 	if err := tx.SelectContext(ctx, &livestreamModels, "SELECT * FROM livestreams WHERE user_id = ?", userID); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get livestreams: "+err.Error())
 	}
-	livestreams := make([]Livestream, len(livestreamModels))
-	for i := range livestreamModels {
-		livestream, err := fillLivestreamResponse(ctx, tx, *livestreamModels[i])
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill livestream: "+err.Error())
-		}
-		livestreams[i] = livestream
+
+	livestreams, err := fillLiveStreamResponses(ctx, tx, livestreamModels)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill livestreams: "+err.Error())
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -302,13 +298,11 @@ func getUserLivestreamsHandler(c echo.Context) error {
 	if err := tx.SelectContext(ctx, &livestreamModels, "SELECT * FROM livestreams WHERE user_id = ?", user.ID); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get livestreams: "+err.Error())
 	}
-	livestreams := make([]Livestream, len(livestreamModels))
-	for i := range livestreamModels {
-		livestream, err := fillLivestreamResponse(ctx, tx, *livestreamModels[i])
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill livestream: "+err.Error())
-		}
-		livestreams[i] = livestream
+
+	// NOTE: これ動くかな？
+	livestreams, err := fillLiveStreamResponses(ctx, tx, livestreamModels)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill livestreams: "+err.Error())
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -483,6 +477,130 @@ func getLivecommentReportsHandler(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, reports)
+}
+
+type UserThemeIconsModel struct {
+	LivestreamID   int64   `db:"livestream_id"`
+	UserID         int64   `db:"id"` // AS したくなくてidにしてる
+	Name           string  `db:"name"`
+	DisplayName    string  `db:"display_name"`
+	Description    string  `db:"description"`
+	HashedPassword string  `db:"password"`
+	Image          *[]byte `db:"image"`
+	DarkMode       *bool   `db:"dark_mode"`
+	ThemeID        *int64  `db:"theme_id"`
+}
+
+func fillLiveStreamResponses(ctx context.Context, tx *sqlx.Tx, livestreamModels []*LivestreamModel) ([]Livestream, error) {
+	livestreams := make([]Livestream, len(livestreamModels))
+
+	// usersを全部取得
+	livestreamIDs := make([]int64, len(livestreamModels))
+	for i := range livestreamModels {
+		livestreamIDs[i] = livestreamModels[i].ID
+	}
+	joinedQuery := `
+		SELECT livestreams.id AS livestream_id, users.*, themes.dark_mode as dark_mode, themes.id as theme_id, icons.image as image
+		FROM livestreams
+		INNER JOIN users ON livestreams.user_id = users.id
+		INNER JOIN themes ON users.id = themes.user_id
+		LEFT JOIN icons ON users.id = icons.user_id
+		WHERE livestreams.id IN (?)
+	`
+	query, params, err := sqlx.In(joinedQuery, livestreamIDs)
+	if err != nil {
+		return nil, err
+	}
+	var ownerModels []*UserThemeIconsModel
+	if err := tx.SelectContext(ctx, &ownerModels, query, params...); err != nil {
+		return nil, err
+	}
+
+	ownerModelsMap := lo.SliceToMap(ownerModels, func(m *UserThemeIconsModel) (int64, *UserThemeIconsModel) {
+		return m.LivestreamID, m
+	})
+
+	// tagsを全部取得
+	for i, ls := range livestreamModels {
+		tags, err := getTagsTmpResponses(ctx, tx, *ls)
+		if err != nil {
+			return nil, err
+		}
+		ownerModel, ok := ownerModelsMap[ls.ID]
+		if !ok {
+			return nil, fmt.Errorf("owner model not found: livestream_id = %d", ls.ID)
+		}
+
+		owner := convertUserThemeIconsModelToUser(*ownerModel)
+
+		livestream := Livestream{
+			ID:           livestreamModels[i].ID,
+			Owner:        owner,
+			Title:        livestreamModels[i].Title,
+			Tags:         tags,
+			Description:  livestreamModels[i].Description,
+			PlaylistUrl:  livestreamModels[i].PlaylistUrl,
+			ThumbnailUrl: livestreamModels[i].ThumbnailUrl,
+			StartAt:      livestreamModels[i].StartAt,
+			EndAt:        livestreamModels[i].EndAt,
+		}
+		livestreams[i] = livestream
+	}
+
+	return livestreams, nil
+}
+
+// TODO: N^2+1なのであとで修正する
+func getTagsTmpResponses(ctx context.Context, tx *sqlx.Tx, livestreamModel LivestreamModel) ([]Tag, error) {
+	var livestreamTagModels []*LivestreamTagModel
+	if err := tx.SelectContext(ctx, &livestreamTagModels, "SELECT * FROM livestream_tags WHERE livestream_id = ?", livestreamModel.ID); err != nil {
+		return nil, err
+	}
+
+	tags := make([]Tag, len(livestreamTagModels))
+	for i := range livestreamTagModels {
+		tagModel := TagModel{}
+		if err := tx.GetContext(ctx, &tagModel, "SELECT * FROM tags WHERE id = ?", livestreamTagModels[i].TagID); err != nil {
+			return nil, err
+		}
+
+		tags[i] = Tag{
+			ID:   tagModel.ID,
+			Name: tagModel.Name,
+		}
+	}
+
+	return tags, nil
+}
+
+func convertUserThemeIconsModelToUser(userThemeIconsModel UserThemeIconsModel) User {
+	if userThemeIconsModel.ThemeID == nil || userThemeIconsModel.DarkMode == nil {
+		panic("theme_id or dark_mode is nil")
+	}
+
+	var image []byte
+	var err error
+	if userThemeIconsModel.Image != nil {
+		image = *userThemeIconsModel.Image
+	} else {
+		image, err = os.ReadFile(fallbackImage)
+		if err != nil {
+			panic(err)
+		}
+	}
+	iconHash := sha256.Sum256(image)
+
+	return User{
+		ID:          userThemeIconsModel.UserID,
+		Name:        userThemeIconsModel.Name,
+		DisplayName: userThemeIconsModel.DisplayName,
+		Description: userThemeIconsModel.Description,
+		Theme: Theme{
+			ID:       *userThemeIconsModel.ThemeID,
+			DarkMode: *userThemeIconsModel.DarkMode,
+		},
+		IconHash: fmt.Sprintf("%x", iconHash),
+	}
 }
 
 func fillLivestreamResponse(ctx context.Context, tx *sqlx.Tx, livestreamModel LivestreamModel) (Livestream, error) {
