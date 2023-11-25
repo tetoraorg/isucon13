@@ -7,11 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/goccy/go-json"
+	"github.com/samber/lo"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/sessions"
@@ -108,7 +109,7 @@ func getIconHandler(c echo.Context) error {
 	// icon_hashを利用し変更されてなかったら304を返す
 	if iconHash := c.Request().Header.Get("If-None-Match"); iconHash != "" {
 		var count int
-		if err := tx.GetContext(ctx, &count, "SELECT COUNT(*) FROM icons WHERE user_id = ? AND icon_hash = ?", username, iconHash); err != nil {
+		if err := tx.GetContext(ctx, &count, "SELECT COUNT(*) FROM icons WHERE user_id = ? AND icon_hash = ?", user.ID, strings.Trim(iconHash, "\"")); err != nil {
 			// なければskip
 			if !errors.Is(err, sql.ErrNoRows) {
 				return echo.NewHTTPError(http.StatusInternalServerError, "failed to get user: "+err.Error())
@@ -415,23 +416,83 @@ func verifyUserSession(c echo.Context) error {
 	return nil
 }
 
+func fillUserResponses(ctx context.Context, tx *sqlx.Tx, userModels []UserModel) ([]User, error) {
+	userIDs := lo.Map(userModels, func(userModel UserModel, _ int) interface{} {
+		return userModel.ID
+	})
+
+	query, params, err := sqlx.In("SELECT * FROM themes WHERE user_id IN (?)", userIDs)
+	if err != nil {
+		return nil, err
+	}
+	themeModels := []ThemeModel{}
+	if err := tx.SelectContext(ctx, &themeModels, query, params...); err != nil {
+		return nil, err
+	}
+	themeMap := lo.SliceToMap(themeModels, func(themeModel ThemeModel) (int64, ThemeModel) {
+		return themeModel.UserID, themeModel
+	})
+
+	type IconModel struct {
+		UserID   int64  `db:"user_id"`
+		IconHash string `db:"icon_hash"`
+	}
+
+	query, params, err = sqlx.In("SELECT user_id, icon_hash FROM icons WHERE user_id IN (?)", userIDs)
+	if err != nil {
+		return nil, err
+	}
+	iconModels := []IconModel{}
+	if err := tx.SelectContext(ctx, &iconModels, query, params...); err != nil {
+		return nil, err
+	}
+	iconMap := lo.SliceToMap(iconModels, func(iconModel IconModel) (int64, IconModel) {
+		return iconModel.UserID, iconModel
+	})
+
+	users := make([]User, len(userModels))
+	for i, userModel := range userModels {
+		themeModel, ok := themeMap[userModel.ID]
+		if !ok {
+			return nil, fmt.Errorf("theme not found for user_id=%d", userModel.ID)
+		}
+
+		var iconHash string
+		if iconModel, ok := iconMap[userModel.ID]; ok {
+			iconHash = iconModel.IconHash
+		} else {
+			iconHash = fallbackIconHash
+		}
+
+		users[i] = User{
+			ID:          userModel.ID,
+			Name:        userModel.Name,
+			DisplayName: userModel.DisplayName,
+			Description: userModel.Description,
+			Theme: Theme{
+				ID:       themeModel.ID,
+				DarkMode: themeModel.DarkMode,
+			},
+			IconHash: iconHash,
+		}
+	}
+
+	return users, nil
+}
+
 func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (User, error) {
 	themeModel := ThemeModel{}
 	if err := tx.GetContext(ctx, &themeModel, "SELECT * FROM themes WHERE user_id = ?", userModel.ID); err != nil {
 		return User{}, err
 	}
 
-	var image []byte
-	if err := tx.GetContext(ctx, &image, "SELECT image FROM icons WHERE user_id = ?", userModel.ID); err != nil {
+	var iconHash string
+	if err := tx.GetContext(ctx, &iconHash, "SELECT icon_hash FROM icons WHERE user_id = ?", userModel.ID); err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			return User{}, err
 		}
-		image, err = os.ReadFile(fallbackImage)
-		if err != nil {
-			return User{}, err
-		}
+		iconHash = fallbackIconHash
 	}
-	iconHash := sha256.Sum256(image)
 
 	user := User{
 		ID:          userModel.ID,
@@ -442,7 +503,7 @@ func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (Us
 			ID:       themeModel.ID,
 			DarkMode: themeModel.DarkMode,
 		},
-		IconHash: fmt.Sprintf("%x", iconHash),
+		IconHash: iconHash,
 	}
 
 	return user, nil

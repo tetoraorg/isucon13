@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/goccy/go-json"
+	"github.com/samber/lo"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo-contrib/session"
@@ -103,14 +105,12 @@ func getLivecommentsHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get livecomments: "+err.Error())
 	}
 
-	livecomments := make([]Livecomment, len(livecommentModels))
-	for i := range livecommentModels {
-		livecomment, err := fillLivecommentResponse(ctx, tx, livecommentModels[i])
+	var livecomments []Livecomment
+	if len(livecommentModels) > 0 {
+		livecomments, err = fillLivecommentReportResponses(ctx, tx, livecommentModels)
 		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, "failed to fil livecomments: "+err.Error())
+			return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill livecomment reports: "+err.Error())
 		}
-
-		livecomments[i] = livecomment
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -387,28 +387,22 @@ func moderateHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get NG words: "+err.Error())
 	}
 
+	// ライブコメント一覧取得
+	var livecomments []*LivecommentModel
+	if err := tx.SelectContext(ctx, &livecomments, "SELECT * FROM livecomments"); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get livecomments: "+err.Error())
+	}
+
 	// NGワードにヒットする過去の投稿も全削除する
 	for _, ngword := range ngwords {
-		// ライブコメント一覧取得
-		var livecomments []*LivecommentModel
-		if err := tx.SelectContext(ctx, &livecomments, "SELECT * FROM livecomments"); err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, "failed to get livecomments: "+err.Error())
-		}
-
 		for _, livecomment := range livecomments {
-			query := `
-			DELETE FROM livecomments
-			WHERE
-			id = ? AND
-			livestream_id = ? AND
-			(SELECT COUNT(*)
-			FROM
-			(SELECT ? AS text) AS texts
-			INNER JOIN
-			(SELECT CONCAT('%', ?, '%')	AS pattern) AS patterns
-			ON texts.text LIKE patterns.pattern) >= 1;
-			`
-			if _, err := tx.ExecContext(ctx, query, livecomment.ID, livestreamID, livecomment.Comment, ngword.Word); err != nil {
+			contains := strings.Contains(livecomment.Comment, ngword.Word)
+			if !contains {
+				continue
+			}
+
+			query := "DELETE FROM livecomments WHERE id = ? AND livestream_id = ?"
+			if _, err := tx.ExecContext(ctx, query, livecomment.ID, livestreamID); err != nil {
 				return echo.NewHTTPError(http.StatusInternalServerError, "failed to delete old livecomments that hit spams: "+err.Error())
 			}
 		}
@@ -421,6 +415,70 @@ func moderateHandler(c echo.Context) error {
 	return c.JSON(http.StatusCreated, map[string]interface{}{
 		"word_id": wordID,
 	})
+}
+
+func fillLivecommentReportResponses(ctx context.Context, tx *sqlx.Tx, liveCommentModels []LivecommentModel) ([]Livecomment, error) {
+	userIDs := lo.Map(liveCommentModels, func(lc LivecommentModel, _ int) int64 {
+		return lc.UserID
+	})
+	query, params, err := sqlx.In("SELECT * FROM users WHERE id IN (?)", userIDs)
+	if err != nil {
+		return nil, err
+	}
+	commentOwnerModels := []UserModel{}
+	if err := tx.SelectContext(ctx, &commentOwnerModels, query, params...); err != nil {
+		return nil, err
+	}
+	commentOwners, err := fillUserResponses(ctx, tx, commentOwnerModels)
+	if err != nil {
+		return nil, err
+	}
+	commentOwnersMap := lo.SliceToMap(commentOwners, func(co User) (int64, User) {
+		return co.ID, co
+	})
+
+	livestreamIDs := lo.Map(liveCommentModels, func(lc LivecommentModel, _ int) int64 {
+		return lc.LivestreamID
+	})
+	query, params, err = sqlx.In("SELECT * FROM livestreams WHERE id IN (?)", livestreamIDs)
+	if err != nil {
+		return nil, err
+	}
+	livestreamModels := []*LivestreamModel{}
+	if err := tx.SelectContext(ctx, &livestreamModels, query, params...); err != nil {
+		return nil, err
+	}
+	livestreams, err := fillLivestreamResponses(ctx, tx, livestreamModels)
+	if err != nil {
+		return nil, err
+	}
+	livestreamsMap := lo.SliceToMap(livestreams, func(ls Livestream) (int64, Livestream) {
+		return ls.ID, ls
+	})
+
+	livecomments := lo.Map(liveCommentModels, func(lc LivecommentModel, i int) Livecomment {
+		commentOwner, ok := commentOwnersMap[lc.UserID]
+		if !ok {
+			return Livecomment{}
+		}
+		livestream, ok := livestreamsMap[lc.LivestreamID]
+		if !ok {
+			return Livecomment{}
+		}
+
+		livecomment := Livecomment{
+			ID:         lc.ID,
+			User:       commentOwner,
+			Livestream: livestream,
+			Comment:    lc.Comment,
+			Tip:        lc.Tip,
+			CreatedAt:  lc.CreatedAt,
+		}
+
+		return livecomment
+	})
+
+	return livecomments, nil
 }
 
 func fillLivecommentResponse(ctx context.Context, tx *sqlx.Tx, livecommentModel LivecommentModel) (Livecomment, error) {

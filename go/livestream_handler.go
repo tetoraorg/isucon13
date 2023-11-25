@@ -2,12 +2,10 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"strconv"
 	"time"
 
@@ -225,7 +223,7 @@ func searchLivestreamsHandler(c echo.Context) error {
 		}
 	}
 
-	livestreams, err := fillLiveStreamResponses(ctx, tx, livestreamModels)
+	livestreams, err := fillLivestreamResponses(ctx, tx, livestreamModels)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill livestreams: "+err.Error())
 	}
@@ -259,7 +257,7 @@ func getMyLivestreamsHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get livestreams: "+err.Error())
 	}
 
-	livestreams, err := fillLiveStreamResponses(ctx, tx, livestreamModels)
+	livestreams, err := fillLivestreamResponses(ctx, tx, livestreamModels)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill livestreams: "+err.Error())
 	}
@@ -300,7 +298,7 @@ func getUserLivestreamsHandler(c echo.Context) error {
 	}
 
 	// NOTE: これ動くかな？
-	livestreams, err := fillLiveStreamResponses(ctx, tx, livestreamModels)
+	livestreams, err := fillLivestreamResponses(ctx, tx, livestreamModels)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill livestreams: "+err.Error())
 	}
@@ -486,12 +484,12 @@ type UserThemeIconsModel struct {
 	DisplayName    string  `db:"display_name"`
 	Description    string  `db:"description"`
 	HashedPassword string  `db:"password"`
-	Image          *[]byte `db:"image"`
+	IconHash       *string `db:"icon_hash"`
 	DarkMode       *bool   `db:"dark_mode"`
 	ThemeID        *int64  `db:"theme_id"`
 }
 
-func fillLiveStreamResponses(ctx context.Context, tx *sqlx.Tx, livestreamModels []*LivestreamModel) ([]Livestream, error) {
+func fillLivestreamResponses(ctx context.Context, tx *sqlx.Tx, livestreamModels []*LivestreamModel) ([]Livestream, error) {
 	livestreams := make([]Livestream, len(livestreamModels))
 
 	// usersを全部取得
@@ -500,7 +498,7 @@ func fillLiveStreamResponses(ctx context.Context, tx *sqlx.Tx, livestreamModels 
 		livestreamIDs[i] = livestreamModels[i].ID
 	}
 	joinedQuery := `
-		SELECT livestreams.id AS livestream_id, users.*, themes.dark_mode as dark_mode, themes.id as theme_id, icons.image as image
+		SELECT livestreams.id AS livestream_id, users.*, themes.dark_mode as dark_mode, themes.id as theme_id, icons.icon_hash as icon_hash
 		FROM livestreams
 		INNER JOIN users ON livestreams.user_id = users.id
 		INNER JOIN themes ON users.id = themes.user_id
@@ -520,15 +518,22 @@ func fillLiveStreamResponses(ctx context.Context, tx *sqlx.Tx, livestreamModels 
 		return m.LivestreamID, m
 	})
 
-	// tagsを全部取得
+	// tagsMapを全部取得
+	tagsMap, err := getTagsResponsesIn(ctx, tx, livestreamIDs)
+	if err != nil {
+		return nil, err
+	}
+
 	for i, ls := range livestreamModels {
-		tags, err := getTagsTmpResponses(ctx, tx, *ls)
-		if err != nil {
-			return nil, err
-		}
 		ownerModel, ok := ownerModelsMap[ls.ID]
 		if !ok {
 			return nil, fmt.Errorf("owner model not found: livestream_id = %d", ls.ID)
+		}
+
+		var tags []Tag
+		tags = tagsMap[ls.ID]
+		if tags == nil {
+			tags = make([]Tag, 0)
 		}
 
 		owner := convertUserThemeIconsModelToUser(*ownerModel)
@@ -550,27 +555,26 @@ func fillLiveStreamResponses(ctx context.Context, tx *sqlx.Tx, livestreamModels 
 	return livestreams, nil
 }
 
-// TODO: N^2+1なのであとで修正する
-func getTagsTmpResponses(ctx context.Context, tx *sqlx.Tx, livestreamModel LivestreamModel) ([]Tag, error) {
-	var livestreamTagModels []*LivestreamTagModel
-	if err := tx.SelectContext(ctx, &livestreamTagModels, "SELECT * FROM livestream_tags WHERE livestream_id = ?", livestreamModel.ID); err != nil {
+func getTagsResponsesIn(ctx context.Context, tx *sqlx.Tx, livestreamModelIDs []int64) (map[int64][]Tag, error) {
+	query, params, err := sqlx.In("SELECT t.*, lt.livestream_id AS livestream_id FROM tags t INNER JOIN livestream_tags lt ON t.id = lt.tag_id WHERE lt.livestream_id IN (?)", livestreamModelIDs)
+	if err != nil {
 		return nil, err
 	}
 
-	tags := make([]Tag, len(livestreamTagModels))
-	for i := range livestreamTagModels {
-		tagModel := TagModel{}
-		if err := tx.GetContext(ctx, &tagModel, "SELECT * FROM tags WHERE id = ?", livestreamTagModels[i].TagID); err != nil {
-			return nil, err
-		}
-
-		tags[i] = Tag{
-			ID:   tagModel.ID,
-			Name: tagModel.Name,
-		}
+	var tags []Tag
+	if err := tx.SelectContext(ctx, &tags, query, params...); err != nil {
+		return nil, err
 	}
 
-	return tags, nil
+	tagsMap := make(map[int64][]Tag)
+	for _, tag := range tags {
+		if _, ok := tagsMap[tag.LivestreamID]; !ok {
+			tagsMap[tag.LivestreamID] = make([]Tag, 0)
+		}
+		tagsMap[tag.LivestreamID] = append(tagsMap[tag.LivestreamID], tag)
+	}
+
+	return tagsMap, nil
 }
 
 func convertUserThemeIconsModelToUser(userThemeIconsModel UserThemeIconsModel) User {
@@ -578,17 +582,16 @@ func convertUserThemeIconsModelToUser(userThemeIconsModel UserThemeIconsModel) U
 		panic("theme_id or dark_mode is nil")
 	}
 
-	var image []byte
-	var err error
-	if userThemeIconsModel.Image != nil {
-		image = *userThemeIconsModel.Image
+	var iconHash string
+	if userThemeIconsModel.IconHash != nil {
+		iconHash = *userThemeIconsModel.IconHash
 	} else {
-		image, err = os.ReadFile(fallbackImage)
-		if err != nil {
-			panic(err)
+		if fallbackIconHash != "" {
+			iconHash = fallbackIconHash
+		} else {
+			panic("icon_hash is nil")
 		}
 	}
-	iconHash := sha256.Sum256(image)
 
 	return User{
 		ID:          userThemeIconsModel.UserID,
@@ -599,7 +602,7 @@ func convertUserThemeIconsModelToUser(userThemeIconsModel UserThemeIconsModel) U
 			ID:       *userThemeIconsModel.ThemeID,
 			DarkMode: *userThemeIconsModel.DarkMode,
 		},
-		IconHash: fmt.Sprintf("%x", iconHash),
+		IconHash: iconHash,
 	}
 }
 

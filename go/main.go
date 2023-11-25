@@ -4,6 +4,7 @@ package main
 // sqlx的な参考: https://jmoiron.github.io/sqlx/
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"log"
 	"net"
@@ -34,6 +35,7 @@ var (
 	powerDNSSubdomainAddress string
 	dbConn                   *sqlx.DB
 	secret                   = []byte("isucon13_session_cookiestore_defaultsecret")
+	fallbackIconHash         = ""
 )
 
 const (
@@ -266,6 +268,13 @@ func main() {
 		os.Exit(1)
 	}
 	powerDNSSubdomainAddress = subdomainAddr
+
+	fallbackIconImage, err := os.ReadFile(fallbackImage)
+	if err != nil {
+		e.Logger.Errorf("failed to read fallback image: %v", err)
+		os.Exit(1)
+	}
+	fallbackIconHash = fmt.Sprintf("%x", sha256.Sum256(fallbackIconImage))
 
 	// TODO: remove later
 	os.Setenv("PPROTEIN_GIT_REPOSITORY", "/home/isucon/webapp")
