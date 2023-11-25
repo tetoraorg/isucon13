@@ -223,7 +223,7 @@ func searchLivestreamsHandler(c echo.Context) error {
 		}
 	}
 
-	livestreams, err := fillLiveStreamResponses(ctx, tx, livestreamModels)
+	livestreams, err := fillLivestreamResponses(ctx, tx, livestreamModels)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill livestreams: "+err.Error())
 	}
@@ -257,7 +257,7 @@ func getMyLivestreamsHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get livestreams: "+err.Error())
 	}
 
-	livestreams, err := fillLiveStreamResponses(ctx, tx, livestreamModels)
+	livestreams, err := fillLivestreamResponses(ctx, tx, livestreamModels)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill livestreams: "+err.Error())
 	}
@@ -298,7 +298,7 @@ func getUserLivestreamsHandler(c echo.Context) error {
 	}
 
 	// NOTE: これ動くかな？
-	livestreams, err := fillLiveStreamResponses(ctx, tx, livestreamModels)
+	livestreams, err := fillLivestreamResponses(ctx, tx, livestreamModels)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill livestreams: "+err.Error())
 	}
@@ -489,7 +489,7 @@ type UserThemeIconsModel struct {
 	ThemeID        *int64  `db:"theme_id"`
 }
 
-func fillLiveStreamResponses(ctx context.Context, tx *sqlx.Tx, livestreamModels []*LivestreamModel) ([]Livestream, error) {
+func fillLivestreamResponses(ctx context.Context, tx *sqlx.Tx, livestreamModels []*LivestreamModel) ([]Livestream, error) {
 	livestreams := make([]Livestream, len(livestreamModels))
 
 	// usersを全部取得
