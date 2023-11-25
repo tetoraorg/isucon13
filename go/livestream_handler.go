@@ -557,7 +557,7 @@ func fillLiveStreamResponses(ctx context.Context, tx *sqlx.Tx, livestreamModels 
 }
 
 func getTagsResponsesIn(ctx context.Context, tx *sqlx.Tx, livestreamModelIDs []int64) (map[int64][]Tag, error) {
-	query, params, err := sqlx.In("SELECT * FROM tags t INNER JOIN livestream_tags lt ON tags.id = lt.tag_id WHERE lt.livestream_id = ?", livestreamModelIDs)
+	query, params, err := sqlx.In("SELECT * FROM tags t INNER JOIN livestream_tags lt ON tags.id = lt.tag_id WHERE lt.livestream_id IN (?)", livestreamModelIDs)
 	if err != nil {
 		return nil, err
 	}
