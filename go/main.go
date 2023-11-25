@@ -22,8 +22,6 @@ import (
 	"github.com/gorilla/sessions"
 	"github.com/labstack/echo-contrib/session"
 	echolog "github.com/labstack/gommon/log"
-
-	"github.com/kaz/pprotein/integration/echov4"
 )
 
 const (
@@ -162,11 +160,11 @@ func initializeHandler(c echo.Context) error {
 	}
 
 	// TODO: remove later
-	go func() {
-		if _, err := http.Get("http://59.106.211.81:9000/api/group/collect"); err != nil {
-			c.Logger().Errorf("failed to communicate with pprotein: %v", err)
-		}
-	}()
+	// go func() {
+	// 	if _, err := http.Get("http://59.106.211.81:9000/api/group/collect"); err != nil {
+	// 		c.Logger().Errorf("failed to communicate with pprotein: %v", err)
+	// 	}
+	// }()
 
 	c.Request().Header.Add("Content-Type", "application/json;charset=utf-8")
 	return c.JSON(http.StatusOK, InitializeResponse{
@@ -277,8 +275,8 @@ func main() {
 	fallbackIconHash = fmt.Sprintf("%x", sha256.Sum256(fallbackIconImage))
 
 	// TODO: remove later
-	os.Setenv("PPROTEIN_GIT_REPOSITORY", "/home/isucon/webapp")
-	echov4.EnableDebugHandler(e)
+	// os.Setenv("PPROTEIN_GIT_REPOSITORY", "/home/isucon/webapp")
+	// echov4.EnableDebugHandler(e)
 
 	// HTTPサーバ起動
 	listenAddr := net.JoinHostPort("", strconv.Itoa(listenPort))
