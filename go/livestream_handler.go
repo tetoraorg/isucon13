@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -507,6 +508,9 @@ func fillLiveStreamResponses(ctx context.Context, tx *sqlx.Tx, livestreamModels 
 	if err := tx.SelectContext(ctx, &ownerModels, query, params...); err != nil {
 		return nil, err
 	}
+
+	log.Println("length of ownerModels: ", len(ownerModels))
+	log.Println("length of livestreamModels: ", len(livestreamModels))
 
 	// tagsを全部取得
 	for i := range livestreamModels {
