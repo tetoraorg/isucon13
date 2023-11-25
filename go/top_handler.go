@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/motoki317/sc"
 )
 
 type Tag struct {
@@ -53,6 +56,18 @@ func getTagHandler(c echo.Context) error {
 	})
 }
 
+var themeCache = sc.NewMust(func(ctx context.Context, userID int64) (*Theme, error) {
+	themeModel := ThemeModel{}
+	if err := dbConn.GetContext(ctx, &themeModel, "SELECT * FROM themes WHERE user_id = ?", userID); err != nil {
+		return nil, err
+	}
+
+	return &Theme{
+		ID:       themeModel.ID,
+		DarkMode: themeModel.DarkMode,
+	}, nil
+}, 1*time.Minute, 2*time.Minute)
+
 // 配信者のテーマ取得API
 // GET /api/user/:username/theme
 func getStreamerThemeHandler(c echo.Context) error {
@@ -81,8 +96,8 @@ func getStreamerThemeHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get user: "+err.Error())
 	}
 
-	themeModel := ThemeModel{}
-	if err := tx.GetContext(ctx, &themeModel, "SELECT * FROM themes WHERE user_id = ?", userModel.ID); err != nil {
+	themeModel, err := themeCache.Get(ctx, userModel.ID)
+	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get user theme: "+err.Error())
 	}
 

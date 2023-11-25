@@ -283,6 +283,8 @@ func registerHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill user: "+err.Error())
 	}
 
+	themeCache.Forget(userID)
+
 	if err := tx.Commit(); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to commit: "+err.Error())
 	}
@@ -481,8 +483,8 @@ func fillUserResponses(ctx context.Context, tx *sqlx.Tx, userModels []UserModel)
 }
 
 func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (User, error) {
-	themeModel := ThemeModel{}
-	if err := tx.GetContext(ctx, &themeModel, "SELECT * FROM themes WHERE user_id = ?", userModel.ID); err != nil {
+	themeModel, err := themeCache.Get(ctx, userModel.ID)
+	if err != nil {
 		return User{}, err
 	}
 
