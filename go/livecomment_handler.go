@@ -144,13 +144,19 @@ func getNgwords(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
-	var ngWords []*NGWord
-	if err := tx.SelectContext(ctx, &ngWords, "SELECT * FROM ng_words WHERE user_id = ? AND livestream_id = ? ORDER BY created_at DESC", userID, livestreamID); err != nil {
+	ngwordsAllUser, err := ngwordCache.Get(ctx, livestreamID)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return c.JSON(http.StatusOK, []*NGWord{})
 		} else {
 			return echo.NewHTTPError(http.StatusInternalServerError, "failed to get NG words: "+err.Error())
 		}
+	}
+	ngWords := lo.Filter(ngwordsAllUser, func(ngword *NGWord, _ int) bool {
+		return ngword.UserID == userID
+	})
+	if len(ngWords) == 0 {
+		return c.JSON(http.StatusOK, []*NGWord{})
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -199,10 +205,18 @@ func postLivecommentHandler(c echo.Context) error {
 	}
 
 	// スパム判定
-	var ngwords []*NGWord
-	if err := tx.SelectContext(ctx, &ngwords, "SELECT id, user_id, livestream_id, word FROM ng_words WHERE user_id = ? AND livestream_id = ?", livestreamModel.UserID, livestreamModel.ID); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get NG words: "+err.Error())
+	ngwords := []*NGWord{}
+	ngwordsAllUser, err := ngwordCache.Get(ctx, livestreamID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			ngwords = []*NGWord{}
+		} else {
+			return echo.NewHTTPError(http.StatusInternalServerError, "failed to get NG words: "+err.Error())
+		}
 	}
+	ngwords = lo.Filter(ngwordsAllUser, func(ngword *NGWord, _ int) bool {
+		return ngword.UserID == livestreamModel.UserID
+	})
 
 	var hitSpam int
 	for _, ngword := range ngwords {
