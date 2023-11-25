@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/goccy/go-json"
+	"github.com/samber/lo"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo-contrib/session"
@@ -68,13 +69,11 @@ func getReactionsHandler(c echo.Context) error {
 	}
 
 	reactions := make([]Reaction, len(reactionModels))
-	for i := range reactionModels {
-		reaction, err := fillReactionResponse(ctx, tx, reactionModels[i])
+	if len(reactionModels) > 0 {
+		reactions, err = fillReactionResponses(ctx, tx, reactionModels)
 		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill reaction: "+err.Error())
+			return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill reactions: "+err.Error())
 		}
-
-		reactions[i] = reaction
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -140,6 +139,69 @@ func postReactionHandler(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusCreated, reaction)
+}
+
+func fillReactionResponses(ctx context.Context, tx *sqlx.Tx, reactionModels []ReactionModel) ([]Reaction, error) {
+	userIDs := lo.Map(reactionModels, func(reactionModel ReactionModel, _ int) int64 {
+		return reactionModel.UserID
+	})
+
+	query, params, err := sqlx.In("SELECT * FROM users WHERE id IN (?)", userIDs)
+	if err != nil {
+		return nil, err
+	}
+	userModels := []UserModel{}
+	if err := tx.SelectContext(ctx, &userModels, query, params...); err != nil {
+		return nil, err
+	}
+	users, err := fillUserResponses(ctx, tx, userModels)
+	if err != nil {
+		return nil, err
+	}
+	userMap := lo.SliceToMap(users, func(user User) (int64, User) {
+		return user.ID, user
+	})
+
+	livestreamIDs := lo.Map(reactionModels, func(reactionModel ReactionModel, _ int) int64 {
+		return reactionModel.LivestreamID
+	})
+	query, params, err = sqlx.In("SELECT * FROM livestreams WHERE id IN (?)", livestreamIDs)
+	if err != nil {
+		return nil, err
+	}
+	livestreamModels := []*LivestreamModel{}
+	if err := tx.SelectContext(ctx, &livestreamModels, query, params...); err != nil {
+		return nil, err
+	}
+	livestreams, err := fillLivestreamResponses(ctx, tx, livestreamModels)
+	if err != nil {
+		return nil, err
+	}
+	livestreamMap := lo.SliceToMap(livestreams, func(livestream Livestream) (int64, Livestream) {
+		return livestream.ID, livestream
+	})
+
+	reactions := make([]Reaction, len(reactionModels))
+	for i := range reactionModels {
+		user, ok := userMap[reactionModels[i].UserID]
+		if !ok {
+			return nil, fmt.Errorf("user not found: id=%d", reactionModels[i].UserID)
+		}
+		livestream, ok := livestreamMap[reactionModels[i].LivestreamID]
+		if !ok {
+			return nil, fmt.Errorf("livestream not found: id=%d", reactionModels[i].LivestreamID)
+		}
+
+		reactions[i] = Reaction{
+			ID:         reactionModels[i].ID,
+			EmojiName:  reactionModels[i].EmojiName,
+			User:       user,
+			Livestream: livestream,
+			CreatedAt:  reactionModels[i].CreatedAt,
+		}
+	}
+
+	return reactions, nil
 }
 
 func fillReactionResponse(ctx context.Context, tx *sqlx.Tx, reactionModel ReactionModel) (Reaction, error) {
