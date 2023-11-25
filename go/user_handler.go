@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/goccy/go-json"
+	"github.com/motoki317/sc"
 	"github.com/samber/lo"
 
 	"github.com/google/uuid"
@@ -87,6 +88,15 @@ type PostIconResponse struct {
 	ID int64 `json:"id"`
 }
 
+var iconCache = sc.NewMust(func(ctx context.Context, userID int64) ([]byte, error) {
+	var image []byte
+	if err := dbConn.GetContext(ctx, &image, "SELECT image FROM icons WHERE user_id = ?", userID); err != nil {
+		return nil, err
+	}
+
+	return image, nil
+}, 1*time.Minute, 2*time.Minute)
+
 func getIconHandler(c echo.Context) error {
 	ctx := c.Request().Context()
 
@@ -121,8 +131,8 @@ func getIconHandler(c echo.Context) error {
 		}
 	}
 
-	var image []byte
-	if err := tx.GetContext(ctx, &image, "SELECT image FROM icons WHERE user_id = ?", user.ID); err != nil {
+	image, err := iconCache.Get(ctx, user.ID)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return c.File(fallbackImage)
 		} else {
@@ -166,6 +176,7 @@ func postIconHandler(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to insert new user icon: "+err.Error())
 	}
+	iconCache.Forget(userID)
 
 	iconID, err := rs.LastInsertId()
 	if err != nil {
