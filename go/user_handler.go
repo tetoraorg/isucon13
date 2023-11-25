@@ -458,12 +458,13 @@ func fillUserResponses(ctx context.Context, tx *sqlx.Tx, userModels []UserModel)
 			return nil, fmt.Errorf("theme not found for user_id=%d", userModel.ID)
 		}
 
-		iconModel, ok := iconMap[userModel.ID]
-		if !ok {
-			return nil, fmt.Errorf("icon not found for user_id=%d", userModel.ID)
+		var iconHash []byte
+		if iconModel, ok := iconMap[userModel.ID]; ok {
+			_iconHash := sha256.Sum256(iconModel.Image)
+			iconHash = _iconHash[:]
+		} else {
+			iconHash = []byte(fallbackIconHash)
 		}
-
-		iconHash := sha256.Sum256(iconModel.Image)
 
 		users[i] = User{
 			ID:          userModel.ID,
