@@ -532,8 +532,11 @@ func fillLiveStreamResponses(ctx context.Context, tx *sqlx.Tx, livestreamModels 
 			return nil, fmt.Errorf("owner model not found: livestream_id = %d", ls.ID)
 		}
 
-		// ignore empty
-		tags := tagsMap[ls.ID]
+		var tags []Tag
+		tags = tagsMap[ls.ID]
+		if tags == nil {
+			tags = make([]Tag, 0)
+		}
 
 		owner := convertUserThemeIconsModelToUser(*ownerModel)
 
