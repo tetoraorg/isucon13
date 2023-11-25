@@ -434,11 +434,11 @@ func fillUserResponses(ctx context.Context, tx *sqlx.Tx, userModels []UserModel)
 	})
 
 	type IconModel struct {
-		UserID int64  `db:"user_id"`
-		Image  []byte `db:"image"`
+		UserID   int64  `db:"user_id"`
+		IconHash string `db:"icon_hash"`
 	}
 
-	query, params, err = sqlx.In("SELECT user_id, image FROM icons WHERE user_id IN (?)", userIDs)
+	query, params, err = sqlx.In("SELECT user_id, icon_hash FROM icons WHERE user_id IN (?)", userIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -457,12 +457,11 @@ func fillUserResponses(ctx context.Context, tx *sqlx.Tx, userModels []UserModel)
 			return nil, fmt.Errorf("theme not found for user_id=%d", userModel.ID)
 		}
 
-		var iconHash []byte
+		var iconHash string
 		if iconModel, ok := iconMap[userModel.ID]; ok {
-			_iconHash := sha256.Sum256(iconModel.Image)
-			iconHash = _iconHash[:]
+			iconHash = iconModel.IconHash
 		} else {
-			iconHash = []byte(fallbackIconHash)
+			iconHash = fallbackIconHash
 		}
 
 		users[i] = User{
@@ -474,7 +473,7 @@ func fillUserResponses(ctx context.Context, tx *sqlx.Tx, userModels []UserModel)
 				ID:       themeModel.ID,
 				DarkMode: themeModel.DarkMode,
 			},
-			IconHash: fmt.Sprintf("%x", iconHash),
+			IconHash: iconHash,
 		}
 	}
 
