@@ -557,7 +557,7 @@ func fillLiveStreamResponses(ctx context.Context, tx *sqlx.Tx, livestreamModels 
 }
 
 func getTagsResponsesIn(ctx context.Context, tx *sqlx.Tx, livestreamModelIDs []int64) (map[int64][]Tag, error) {
-	query, params, err := sqlx.In("SELECT t.* FROM tags t INNER JOIN livestream_tags lt ON t.id = lt.tag_id WHERE lt.livestream_id IN (?)", livestreamModelIDs)
+	query, params, err := sqlx.In("SELECT t.*, lt.livestream_id AS livestream_id FROM tags t INNER JOIN livestream_tags lt ON t.id = lt.tag_id WHERE lt.livestream_id IN (?)", livestreamModelIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -569,10 +569,10 @@ func getTagsResponsesIn(ctx context.Context, tx *sqlx.Tx, livestreamModelIDs []i
 
 	tagsMap := make(map[int64][]Tag)
 	for _, tag := range tags {
-		if _, ok := tagsMap[tag.ID]; !ok {
-			tagsMap[tag.ID] = make([]Tag, 0)
+		if _, ok := tagsMap[tag.LivestreamID]; !ok {
+			tagsMap[tag.LivestreamID] = make([]Tag, 0)
 		}
-		tagsMap[tag.ID] = append(tagsMap[tag.ID], tag)
+		tagsMap[tag.LivestreamID] = append(tagsMap[tag.LivestreamID], tag)
 	}
 
 	return tagsMap, nil
