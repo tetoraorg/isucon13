@@ -247,7 +247,11 @@ func getLivestreamStatisticsHandler(c echo.Context) error {
 	sort.Slice(scores, func(i, j int) bool {
 		si := scores[i].Count + scores[i].TotalTip
 		sj := scores[j].Count + scores[j].TotalTip
-		return si < sj
+		if si == sj {
+			return livestreams[i].ID < livestreams[j].ID
+		} else {
+			return si < sj
+		}
 	})
 
 	// ランク算出
